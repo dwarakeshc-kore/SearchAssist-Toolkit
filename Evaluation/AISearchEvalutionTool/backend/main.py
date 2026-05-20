@@ -19,6 +19,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("anthropic").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("pymongo").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +73,29 @@ def health():
 
 @app.get("/api/debug/db")
 def debug_db():
-    """Shows database location, size, and table row counts."""
+    """Shows configured database backend, location, and row/collection counts."""
+    from config import get_config
+    cfg = get_config().database
+    if cfg.backend == "mongodb":
+        from pymongo import MongoClient
+        client = MongoClient(cfg.mongodb_uri, serverSelectionTimeoutMS=2000)
+        db = client[cfg.mongodb_database]
+        # Force connection errors to surface in this debug endpoint.
+        client.admin.command("ping")
+        collections = {}
+        for name in db.list_collection_names():
+            collections[name] = db[name].count_documents({})
+        client.close()
+        return {
+            "backend": "mongodb",
+            "mongodb_uri": cfg.mongodb_uri,
+            "database": cfg.mongodb_database,
+            "collections": collections,
+        }
+
+    import os
     import sqlite3 as _sq
     from db.database import DB_PATH
-    import os
     path = str(DB_PATH)
     exists = os.path.exists(path)
     size_kb = round(os.path.getsize(path) / 1024, 2) if exists else 0
@@ -88,6 +108,7 @@ def debug_db():
             tables[t] = count
         conn.close()
     return {
+        "backend": "sqlite",
         "db_path": path,
         "exists": exists,
         "size_kb": size_kb,

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS app_config (
     anthropic_base_url TEXT NOT NULL DEFAULT '',
     openai_key      TEXT NOT NULL DEFAULT '',
     openai_base_url TEXT NOT NULL DEFAULT '',
+    gemini_key      TEXT NOT NULL DEFAULT '',
+    gemini_base_url TEXT NOT NULL DEFAULT '',
     banned_topics   TEXT NOT NULL DEFAULT '[]',  -- JSON array of strings
     answer_mode     TEXT NOT NULL DEFAULT 'answer_generation',  -- 'answer_generation' | 'extract_only'
     case1_threshold REAL NOT NULL DEFAULT 0.5,  -- semantic Q↔Answer similarity pass threshold

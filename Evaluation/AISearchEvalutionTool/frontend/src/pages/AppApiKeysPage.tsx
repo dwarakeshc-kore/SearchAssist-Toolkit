@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 
 // ── cURL parser ──────────────────────────────────────────────────────────────
 
-type CurlResult = { provider: "anthropic" | "openai" | null; apiKey: string; baseUrl: string; error: string | null };
+type Provider = "anthropic" | "openai" | "gemini";
+type CurlResult = { provider: Provider | null; apiKey: string; baseUrl: string; error: string | null };
 
 function parseCurl(raw: string): CurlResult {
   const s = raw.replace(/\\\s*\n/g, " ").replace(/\r?\n/g, " ");
@@ -29,8 +30,9 @@ function parseCurl(raw: string): CurlResult {
   if (headers["authorization"]?.toLowerCase().startsWith("bearer ")) apiKey = headers["authorization"].slice(7).trim();
   else if (headers["api-key"]) apiKey = headers["api-key"].trim();
   else if (headers["x-api-key"]) apiKey = headers["x-api-key"].trim();
-  if (!apiKey) return { provider: null, apiKey: "", baseUrl: "", error: "No API key found (Authorization: Bearer, api-key, or x-api-key)" };
-  let provider: "anthropic" | "openai" | null = null;
+  else if (headers["x-goog-api-key"]) apiKey = headers["x-goog-api-key"].trim();
+  if (!apiKey) return { provider: null, apiKey: "", baseUrl: "", error: "No API key found (Authorization: Bearer, api-key, x-api-key, or x-goog-api-key)" };
+  let provider: Provider | null = null;
   let baseUrl = "";
   try {
     const p = new URL(rawUrl);
@@ -38,6 +40,11 @@ function parseCurl(raw: string): CurlResult {
     if (host.includes("anthropic.com") || apiKey.startsWith("sk-ant-") || "anthropic-version" in headers) {
       provider = "anthropic";
       if (!host.includes("api.anthropic.com")) baseUrl = `${p.protocol}//${p.host}`;
+    } else if (host.includes("generativelanguage.googleapis.com")) {
+      provider = "gemini";
+      const modelsIndex = p.pathname.indexOf("/models/");
+      baseUrl = modelsIndex > -1 ? `${p.protocol}//${p.host}${p.pathname.slice(0, modelsIndex)}` : `${p.protocol}//${p.host}`;
+      if (baseUrl === "https://generativelanguage.googleapis.com/v1beta") baseUrl = "";
     } else {
       provider = "openai";
       const isAzure = host.endsWith(".openai.azure.com") || host.endsWith(".cognitiveservices.azure.com") || p.pathname.includes("/openai/deployments/");
@@ -67,24 +74,30 @@ export default function AppApiKeysPage() {
   const [anthropicUrl, setAnthropicUrl] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiUrl, setOpenaiUrl] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiUrl, setGeminiUrl] = useState("");
   const [case1Threshold, setCase1Threshold] = useState(0.5);
   const [case2Threshold, setCase2Threshold] = useState(0.5);
 
   const [showAnthropic, setShowAnthropic] = useState(false);
   const [showOpenai, setShowOpenai] = useState(false);
+  const [showGemini, setShowGemini] = useState(false);
   const [anthropicTest, setAnthropicTest] = useState<{ ok: boolean; response: string } | null>(null);
   const [openaiTest, setOpenaiTest] = useState<{ ok: boolean; response: string } | null>(null);
+  const [geminiTest, setGeminiTest] = useState<{ ok: boolean; response: string } | null>(null);
   const [curlOpen, setCurlOpen] = useState(false);
   const [curlRaw, setCurlRaw] = useState("");
   const [curlResult, setCurlResult] = useState<CurlResult | null>(null);
   const [thresholdSaved, setThresholdSaved] = useState(false);
   const [anthropicSaved, setAnthropicSaved] = useState(false);
   const [openaiSaved, setOpenaiSaved] = useState(false);
+  const [geminiSaved, setGeminiSaved] = useState(false);
 
   useEffect(() => {
     if (status) {
       setAnthropicUrl(status.anthropic_base_url || "");
       setOpenaiUrl(status.openai_base_url || "");
+      setGeminiUrl(status.gemini_base_url || "");
       setCase1Threshold(status.case1_threshold ?? 0.5);
       setCase2Threshold(status.case2_threshold ?? 0.5);
     }
@@ -110,6 +123,16 @@ export default function AppApiKeysPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["app-api-keys", appId] }); setOpenaiKey(""); setOpenaiSaved(true); setTimeout(() => setOpenaiSaved(false), 2000); },
   });
 
+  const saveGemini = useMutation({
+    mutationFn: () => {
+      const body: AppApiKeysUpdate = {};
+      if (geminiKey.trim()) body.gemini_key = geminiKey.trim();
+      if (geminiUrl !== (status?.gemini_base_url ?? "")) body.gemini_base_url = geminiUrl.trim();
+      return appApiKeysApi.set(appId!, body);
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["app-api-keys", appId] }); setGeminiKey(""); setGeminiSaved(true); setTimeout(() => setGeminiSaved(false), 2000); },
+  });
+
   const saveThresholds = useMutation({
     mutationFn: () => appApiKeysApi.set(appId!, { case1_threshold: case1Threshold, case2_threshold: case2Threshold }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["app-api-keys", appId] }); setThresholdSaved(true); setTimeout(() => setThresholdSaved(false), 2000); },
@@ -127,18 +150,27 @@ export default function AppApiKeysPage() {
     onError: (e: { response?: { data?: { detail?: string } } }) => setOpenaiTest({ ok: false, response: e.response?.data?.detail ?? "Test failed" }),
   });
 
+  const testGeminiMutation = useMutation({
+    mutationFn: () => appApiKeysApi.testGemini(appId!, geminiKey.trim() || undefined, geminiUrl.trim() || undefined),
+    onSuccess: (d) => setGeminiTest(d),
+    onError: (e: { response?: { data?: { detail?: string } } }) => setGeminiTest({ ok: false, response: e.response?.data?.detail ?? "Test failed" }),
+  });
+
   function applyCurl(r: CurlResult) {
     if (r.error) return;
     if (r.provider === "anthropic") { setAnthropicKey(r.apiKey); if (r.baseUrl) setAnthropicUrl(r.baseUrl); setAnthropicTest(null); }
+    else if (r.provider === "gemini") { setGeminiKey(r.apiKey); if (r.baseUrl) setGeminiUrl(r.baseUrl); setGeminiTest(null); }
     else { setOpenaiKey(r.apiKey); if (r.baseUrl) setOpenaiUrl(r.baseUrl); setOpenaiTest(null); }
     setCurlOpen(false); setCurlRaw(""); setCurlResult(null);
   }
 
   const anthropicDirty = anthropicKey.trim() || anthropicUrl !== (status?.anthropic_base_url ?? "");
   const openaiDirty = openaiKey.trim() || openaiUrl !== (status?.openai_base_url ?? "");
+  const geminiDirty = geminiKey.trim() || geminiUrl !== (status?.gemini_base_url ?? "");
   const thresholdsDirty = case1Threshold !== (status?.case1_threshold ?? 0.5) || case2Threshold !== (status?.case2_threshold ?? 0.5);
   const canTestAnthropic = !!(anthropicKey.trim() || status?.anthropic_key_set);
   const canTestOpenai = !!(openaiKey.trim() || status?.openai_key_set);
+  const canTestGemini = !!(geminiKey.trim() || status?.gemini_key_set);
 
   if (isLoading) return <div className="text-center py-16 text-gray-400">Loading...</div>;
 
@@ -146,7 +178,7 @@ export default function AppApiKeysPage() {
     <div className="space-y-5 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">API Keys</h1>
-        <p className="text-sm text-gray-500 mt-1">Set keys for Anthropic and OpenAI. You can test before saving.</p>
+        <p className="text-sm text-gray-500 mt-1">Set keys for Anthropic, OpenAI, and Gemini. You can test before saving.</p>
       </div>
 
       {/* cURL import */}
@@ -179,7 +211,7 @@ export default function AppApiKeysPage() {
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 text-green-700 font-semibold">
-                      <CheckCircle className="w-3.5 h-3.5" /> {curlResult.provider === "anthropic" ? "Anthropic" : "OpenAI / compatible"}
+                      <CheckCircle className="w-3.5 h-3.5" /> {curlResult.provider === "anthropic" ? "Anthropic" : curlResult.provider === "gemini" ? "Gemini" : "OpenAI / compatible"}
                     </div>
                     <div className="space-y-1 text-gray-700">
                       <p><span className="text-gray-400 mr-2">Key</span><span className="font-mono">{curlResult.apiKey.slice(0, 10)}{"•".repeat(8)}</span></p>
@@ -188,7 +220,7 @@ export default function AppApiKeysPage() {
                     <button onClick={() => applyCurl(curlResult)}
                       className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700"
                     >
-                      <ArrowRight className="w-3.5 h-3.5" /> Apply to {curlResult.provider === "anthropic" ? "Anthropic" : "OpenAI"}
+                      <ArrowRight className="w-3.5 h-3.5" /> Apply to {curlResult.provider === "anthropic" ? "Anthropic" : curlResult.provider === "gemini" ? "Gemini" : "OpenAI"}
                     </button>
                   </>
                 )}
@@ -243,6 +275,28 @@ export default function AppApiKeysPage() {
           isTesting={testOpenaiMutation.isPending}
           onTest={() => { setOpenaiTest(null); testOpenaiMutation.mutate(); }}
           testResult={openaiTest}
+        />
+        <ProviderRow
+          label="Gemini"
+          hint="Generation, judge, or insights"
+          isSet={status?.gemini_key_set ?? false}
+          preview={status?.gemini_key_preview ?? ""}
+          keyValue={geminiKey}
+          urlValue={geminiUrl}
+          urlPlaceholder="https://generativelanguage.googleapis.com/v1beta"
+          keyPlaceholder="AIza..."
+          show={showGemini}
+          onToggleShow={() => setShowGemini((v) => !v)}
+          onKeyChange={(v) => { setGeminiKey(v); setGeminiTest(null); }}
+          onUrlChange={(v) => { setGeminiUrl(v); setGeminiTest(null); }}
+          isDirty={!!geminiDirty}
+          isSaving={saveGemini.isPending}
+          saved={geminiSaved}
+          onSave={() => saveGemini.mutate()}
+          canTest={canTestGemini}
+          isTesting={testGeminiMutation.isPending}
+          onTest={() => { setGeminiTest(null); testGeminiMutation.mutate(); }}
+          testResult={geminiTest}
         />
       </div>
 

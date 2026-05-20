@@ -55,7 +55,7 @@ class AppConfigResponse(BaseModel):
 class LLMConfigUpdate(BaseModel):
     model: str
     temperature: float = Field(ge=0.0, le=2.0)
-    max_tokens: int = Field(gt=0, le=16000)
+    max_tokens: int = Field(gt=0, le=32000)
 
 
 class LLMConfigResponse(BaseModel):
@@ -101,7 +101,7 @@ class ContentSourceResponse(BaseModel):
     Used for Websites (sys_content_type=web) and Documents (sys_content_type=file),
     which Kore.ai's public API does not expose via a dedicated listing endpoint.
     """
-    source_id: str            # extractionSourceId — the parent container
+    source_id: str            # extractionSourceId — top-level source metadata
     name: str                 # sys_source_name (falls back to URL or source_id)
     sys_content_type: str     # echoed for the UI badge ("web" | "file")
     records_count: int        # docs observed in this source
@@ -120,6 +120,7 @@ class GenerationRequest(BaseModel):
     file_source_ids: list[str] = []     # extractionSourceId for sys_content_type=file uploads
     max_docs_per_source: int = Field(default=10, ge=0, description="Max docs per source. 0 = all documents (no cap).")
     max_questions_per_doc: int = Field(default=5, ge=1, le=5)
+    target_language: str = Field(default="English", min_length=1, max_length=80)
     filters: dict[str, Any] = {}
 
 

@@ -202,6 +202,7 @@ export const generationApi = {
     file_source_ids?: string[];
     max_docs_per_source: number;
     max_questions_per_doc: number;
+    target_language: string;
     filters: Record<string, unknown>;
   }) => api.post<Job>(`/apps/${appId}/generation/start`, data).then((r) => r.data),
   getJob: (appId: string, jobId: string) =>
@@ -453,6 +454,9 @@ export interface ApiKeyStatus {
   openai_key_set: boolean;
   openai_key_preview: string;
   openai_base_url: string;
+  gemini_key_set: boolean;
+  gemini_key_preview: string;
+  gemini_base_url: string;
   case1_threshold: number;
   case2_threshold: number;
 }
@@ -462,6 +466,8 @@ export interface AppApiKeysUpdate {
   anthropic_base_url?: string;
   openai_key?: string;
   openai_base_url?: string;
+  gemini_key?: string;
+  gemini_base_url?: string;
   case1_threshold?: number;
   case2_threshold?: number;
 }
@@ -474,4 +480,6 @@ export const appApiKeysApi = {
     api.post<{ ok: boolean; response: string }>(`/apps/${appId}/api-keys/test-anthropic`, { key: key || null, base_url: baseUrl || null }).then((r) => r.data),
   testOpenAI: (appId: string, key?: string, baseUrl?: string) =>
     api.post<{ ok: boolean; response: string }>(`/apps/${appId}/api-keys/test-openai`, { key: key || null, base_url: baseUrl || null }).then((r) => r.data),
+  testGemini: (appId: string, key?: string, baseUrl?: string) =>
+    api.post<{ ok: boolean; response: string }>(`/apps/${appId}/api-keys/test-gemini`, { key: key || null, base_url: baseUrl || null }).then((r) => r.data),
 };

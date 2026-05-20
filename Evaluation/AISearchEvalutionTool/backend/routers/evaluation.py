@@ -50,7 +50,7 @@ def test_filter_prompt(app_id: str, body: FilterPromptTestRequest):
     if not app:
         raise HTTPException(404, "App not found")
     try:
-        from agents.llm_client import call_llm
+        from agents.llm_client import call_llm_json
         from agents.prompts import FILTER_GENERATOR_PROMPT
 
         if body.prompt_text is not None:
@@ -59,7 +59,7 @@ def test_filter_prompt(app_id: str, body: FilterPromptTestRequest):
             row = get_active_prompt(app_id, "filter_generator")
             system_prompt = row["prompt_text"] if row else FILTER_GENERATOR_PROMPT
 
-        raw = call_llm(app_id, "filter_generator", system_prompt, f"Question: {body.question}")
+        raw = call_llm_json(app_id, "filter_generator", system_prompt, f"Question: {body.question}")
         return {"raw_response": raw, "error": None}
     except Exception as exc:
         return {"raw_response": None, "error": str(exc)}
